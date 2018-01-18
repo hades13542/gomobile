@@ -105,7 +105,7 @@ func onStart(glctx gl.Context) {
 
 	touchY = 500
 	touchX = 500
-
+ 
 	go func () {
 		for t := range ticker.C {
 			visible[counter] = true;
