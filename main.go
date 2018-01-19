@@ -1,6 +1,7 @@
 package main
 
 import (
+
 	"math/rand"
 	"log"
 
@@ -16,26 +17,42 @@ import (
 	"golang.org/x/mobile/exp/f32"
 
 	"time"
+	"golang.org/x/mobile/exp/sprite/clock"
+
+	"image"
+	"fmt"
+	"golang.org/x/mobile/geom"
+	"image/color"
+	"github.com/golang/freetype/truetype"
+
+
 )
 
 var (
-	ticker = time.NewTicker(time.Second * 1)
+	startTime = time.Now()
+
+	ticker = time.NewTicker(time.Millisecond * 500)
 	counter = 0
+	destroyed = 0
+	
 	game 	 *Game
 	program  gl.Program
 	buf      gl.Buffer
 
+	images    *glutil.Images
+	fonts       *truetype.Font
+
 	position gl.Attrib
 	offset   gl.Uniform
-	color    gl.Uniform
+	colorShader    gl.Uniform
 
 	touchX float32
 	touchY float32
 
-	fieldsX [40]float32
-	fieldsY [40]float32
-	draw 	[40]bool
-	visible [40]bool
+	fieldsX [elements]float32
+	fieldsY [elements]float32
+	toDraw 	[elements]bool
+	visible [elements]bool
 	timer float32;
 )
 
@@ -81,7 +98,8 @@ func checkIfTouched(x float32, y float32) {
 	ySize := 110
 	for i := range fieldsY {
 		if((x > fieldsX[i] && x < fieldsX[i] + float32(xSize) ) && (y < fieldsY[i] && y > fieldsY[i] - float32(ySize) ) ){
-			draw[i] = false
+			toDraw[i] = false
+			
 		}	
 	}
 }
@@ -94,13 +112,19 @@ func onStart(glctx gl.Context) {
 		return
 	}
 
+	fonts, err = LoadCustomFont()
+	if err != nil {
+		log.Fatalf("error parsing font: %v", err)
+	}
+
+	images = glutil.NewImages(glctx)
 	buf = glctx.CreateBuffer()
 	glctx.BindBuffer(gl.ARRAY_BUFFER, buf)
 	glctx.BufferData(gl.ARRAY_BUFFER, triangleData, gl.STATIC_DRAW)
 	//glctx.BufferData(gl.ARRAY_BUFFER, triangleData2, gl.STATIC_DRAW)
 
 	position = glctx.GetAttribLocation(program, "position")
-	color = glctx.GetUniformLocation(program, "color")
+	colorShader = glctx.GetUniformLocation(program, "color")
 	offset = glctx.GetUniformLocation(program, "offset")
 
 	touchY = 500
@@ -115,9 +139,9 @@ func onStart(glctx gl.Context) {
 	}()
 
 	for i:= range fieldsY {
-		fieldsY[i] = rand.Float32()*screenSizeY
+		fieldsY[i] = 150 + rand.Float32()*(screenSizeY - 150)
 		fieldsX[i] = rand.Float32()*screenSizeX
-		draw[i] = true;
+		toDraw[i] = true;
 		visible[i] = false;
 	}
 }
@@ -152,6 +176,7 @@ void main() {
 }`
 
 func onStop(glctx gl.Context) {
+	images.Release()
 	glctx.DeleteProgram(program)
 	glctx.DeleteBuffer(buf)
 }
@@ -162,14 +187,14 @@ func onPaint(glctx gl.Context, sz size.Event) {
 
 	glctx.UseProgram(program)
 
-	glctx.Uniform4f(color, 0, 1, 0, 1)
+	glctx.Uniform4f(colorShader, 0, 1, 0, 1)
 	// var x float32
 	// var y float32
 
 	// timestamp := time.Since(startTime)
 	// now := timestamp/time.Second
 
-	if (counter == 30) {
+	if (counter == elements) {
 		ticker.Stop()
 	}
 	// timer += 0.01
@@ -179,10 +204,10 @@ func onPaint(glctx gl.Context, sz size.Event) {
 	// timer = 0;
 	// }
 
-
+	
 
 	for i:= range fieldsY{
-		if(draw[i] == true && visible[i] == true) {
+		if(toDraw[i] == true && visible[i] == true) {
 			glctx.Uniform2f(offset, fieldsX[i]/float32(sz.WidthPx), fieldsY[i]/float32(sz.HeightPx))
 
 
@@ -192,12 +217,44 @@ func onPaint(glctx gl.Context, sz size.Event) {
 			glctx.DrawArrays(gl.TRIANGLES, 0, vertexCount)
 			glctx.DisableVertexAttribArray(position)
 		}
+		if(toDraw[i] == false) {
+			destroyed += 1
+		}
 	}
+
+	renderText(sz,glctx,images)
 }
 
+ func renderText(sz size.Event, glctx gl.Context, images *glutil.Images) {
+	//headerHeightPx, footerHeightPx := 100, 100
+
+	now := clock.Time(time.Since(startTime) / time.Second)
+	
+	loading := &TextSprite{
+		text:            fmt.Sprintf("Spawned : %d Destroyed : %d Time Elapsed: %d", counter, destroyed, int(now)),
+		font:            fonts,
+		widthPx:         sz.WidthPx,
+		heightPx:        200,
+		textColor:       image.White,
+		backgroundColor: image.NewUniform(color.RGBA{0x00, 0x00, 0xFF, 0xFF}),
+		fontSize:        24,
+		xPt:             0,
+		yPt:             0,
+		align:           Left,
+	}
+	loading.Render(sz)
+	destroyed = 0
+ }
+
 const (
+	elements = 300
 	screenSizeX = 1080
 	screenSizeY = 1920
 	coordsPerVertex = 3
 	vertexCount     = 3
 )
+
+
+func PxToPt(sz size.Event, sizePx int) geom.Pt {
+	return geom.Pt(float32(sizePx) / sz.PixelsPerPt)
+}
